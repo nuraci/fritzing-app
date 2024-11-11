@@ -881,6 +881,8 @@ void MainWindow::createEditMenuActions() {
 	m_redoAct->setShortcuts(QKeySequence::Redo);
 	m_redoAct->setText(tr("Redo"));
 
+	m_undoShortcut = new QShortcut(this);
+
 	m_cutAct = new QAction(tr("&Cut"), this);
 	m_cutAct->setShortcut(QKeySequence::Cut);
 	m_cutAct->setStatusTip(tr("Cut selection"));
@@ -1341,7 +1343,7 @@ void MainWindow::createMenus()
 	createTraceMenus();
 	createHelpMenu();
 
-	auto * actionProbe = new FProbeActions("MenuBar", menuBar());
+	new FProbeActions("MenuBar", menuBar());
 }
 
 QMenu * MainWindow::createRotateSubmenu(QMenu * parentMenu) {
@@ -2829,7 +2831,7 @@ void MainWindow::createTraceMenuActions() {
 	connect(m_selectAllCopperFillAct, SIGNAL(triggered()), this, SLOT(selectAllCopperFill()));
 
 	m_updateRoutingStatusAct = new QAction(tr("Force Update Routing Status and Ratsnests"), this);
-	m_updateRoutingStatusAct->setStatusTip(tr("Recalculate routing status and ratsnest wires (in case the auto-update isn't working correctly)"));
+	m_updateRoutingStatusAct->setStatusTip(tr("Recalculate routing status and ratsnest lines (in case the auto-update isn't working correctly)"));
 	connect(m_updateRoutingStatusAct, SIGNAL(triggered()), this, SLOT(updateRoutingStatus()));
 
 	m_selectAllExcludedTracesAct = new QAction(tr("Select All \"Don't Autoroute\" Traces"), this);
@@ -3414,7 +3416,7 @@ QMenu *MainWindow::breadboardItemMenu() {
 	auto *menu = new QMenu(QObject::tr("Part"), this);
 	createRotateSubmenu(menu);
 	viewItemMenuAux(menu);
-	auto * probe = new FProbeActions("BreadboardItem", menu);
+	new FProbeActions("BreadboardItem", menu);
 	return menu;
 }
 
@@ -3424,7 +3426,7 @@ QMenu *MainWindow::schematicItemMenu() {
 	menu->addAction(m_flipHorizontalAct);
 	menu->addAction(m_flipVerticalAct);
 	viewItemMenuAux(menu);
-	auto * probe = new FProbeActions("SchematicItem", menu);
+	new FProbeActions("SchematicItem", menu);
 	return menu;
 
 }
@@ -3439,7 +3441,7 @@ QMenu *MainWindow::pcbItemMenu() {
 	m_convertToBendpointSeparator = menu->addSeparator();
 	menu->addAction(m_setOneGroundFillSeedAct);
 	menu->addAction(m_clearGroundFillSeedsAct);
-	auto * probe = new FProbeActions("PCBItem", menu);
+	new FProbeActions("PCBItem", menu);
 	return menu;
 }
 
@@ -3472,7 +3474,7 @@ QMenu *MainWindow::breadboardWireMenu() {
 #endif
 
 	connect( menu, SIGNAL(aboutToShow()), this, SLOT(updateWireMenu()));
-	auto * probe = new FProbeActions("BreadboardWire", menu);
+	new FProbeActions("BreadboardWire", menu);
 	return menu;
 }
 
@@ -3498,7 +3500,7 @@ QMenu *MainWindow::pcbWireMenu() {
 #endif
 
 	connect(menu, SIGNAL(aboutToShow()), this, SLOT(updateWireMenu()));
-	auto * probe = new FProbeActions("PCBWire", menu);
+	new FProbeActions("PCBWire", menu);
 	return menu;
 }
 
@@ -3530,7 +3532,7 @@ QMenu *MainWindow::schematicWireMenu() {
 #endif
 
 	connect( menu, SIGNAL(aboutToShow()), this, SLOT(updateWireMenu()));
-	auto * probe = new FProbeActions("SchematicWire", menu);
+	new FProbeActions("SchematicWire", menu);
 	return menu;
 }
 
@@ -3930,6 +3932,22 @@ void MainWindow::onShareOnlineFinished() {
 		FMessageBox::critical(this, tr("Fritzing"), QString("Online sharing is currently not available."));
 	}
 	reply->deleteLater();
+}
+
+void MainWindow::disableUndoAction() {
+	m_undoAct->setShortcuts({});
+	m_redoAct->setShortcuts({});
+
+	// Set temporary shortcuts to show the disabled message
+	m_undoShortcut->setKey(QKeySequence::Undo);
+}
+
+void MainWindow::enableUndoAction() {
+	// Clear the shortcuts from the warning shortcut
+	m_undoShortcut->setKey(QKeySequence());
+
+	m_undoAct->setShortcuts(QKeySequence::Undo);
+	m_redoAct->setShortcuts(QKeySequence::Redo);
 }
 
 void MainWindow::selectAllObsolete() {

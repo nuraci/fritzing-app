@@ -27,9 +27,9 @@ You should have received a copy of the GNU General Public License
         <key>CFBundleExecutable</key>
         <string>Fritzing</string>
         <key>CFBundleGetInfoString</key>
-		<string>Fritzing 1.0.3</string>
+		<string>Fritzing 1.0.4</string>
         <key>CFBundleShortVersionString</key>
-		<string>1.0.3</string>
+		<string>1.0.4</string>
         <key>CFBundleVersion</key>
 		<string>104347</string>
         <key>CFBundleIconFile</key>
@@ -40,6 +40,8 @@ You should have received a copy of the GNU General Public License
         <string>APPL</string>
         <key>CFBundleSignature</key>
         <string>FRtz</string>
+        <key>LSMinimumSystemVersion</key>
+        <string>11.0</string>
         <key>CFBundleDocumentTypes</key>
         <array>
             <dict>

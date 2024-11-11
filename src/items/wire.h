@@ -112,9 +112,9 @@ public:
 	double opacity();
 	void setOpacity(double opacity);
 	const QColor & color();
-	void setWireWidth(double width, InfoGraphicsView *, double hoverStrokeWidth);
+	virtual void setWireWidth(double width, InfoGraphicsView *, double hoverStrokeWidth);
 	void setPenWidth(double width, InfoGraphicsView *, double hoverStrokeWidth);
-	double width();
+	virtual double wireWidth();
 	double shadowWidth();
 	double mils();
 	void setExtras(QDomElement &, InfoGraphicsView *);
@@ -132,6 +132,7 @@ public:
 	virtual bool canSwitchLayers();
 	void paint ( QPainter * painter, const QStyleOptionGraphicsItem * option, QWidget * widget = 0 );
 	void paintBody(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+	virtual QString makeWireSVG(QPointF offset, double dpi, double printerscale, bool blackOnly);
 
 	bool hasPartNumberProperty();
 	bool rotationAllowed();
@@ -216,7 +217,16 @@ protected:
 	ViewLayer::ViewID useViewIDForPixmap(ViewLayer::ViewID, bool swappingEnabled);
 	QColor colorForLength();
 	bool coloredByLength();
+	QString makeWireSVGAux(
+		QPointF offset, double dpi, double printerScale, bool blackOnly, double scale);
 
+	QString makeWireSVGLine(double width,
+							const QString &color,
+							QPointF offset,
+							double dpi,
+							double printerScale,
+							bool blackOnly,
+							bool dashed);
 protected:
 	QLineF	m_line;
 	QPen	m_pen;

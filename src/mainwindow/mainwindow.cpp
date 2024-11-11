@@ -76,6 +76,7 @@ along with Fritzing.  If not, see <http://www.gnu.org/licenses/>.
 #include "../simulation/FProbeStartSimulator.h"
 #include "../mainwindow/FProbeDropByModuleID.h"
 #include "../mainwindow/FProbeKeyPressEvents.h"
+#include "../mainwindow/fprobefocuswidget.h"
 #include "connectors/debugconnectors.h"
 #include "connectors/debugconnectorsprobe.h"
 #include "testing/FTesting.h"
@@ -518,14 +519,16 @@ void MainWindow::init(ReferenceModel *referenceModel, bool lockFiles) {
 
 	connect(fProbe, &FProbeDropByModuleID::putItemByModuleID, this, &MainWindow::putItemByModuleID);
 
-	auto fProbeKey = new FProbeKeyPressEvents();
+	new FProbeKeyPressEvents();
 
-	connect(fProbeKey, &FProbeKeyPressEvents::postKeyEvent, this, &MainWindow::postKeyEvent);
+	FProbeFocusWidget *focusWidgetProbe = new FProbeFocusWidget();
+
+	connect(focusWidgetProbe, &FProbeFocusWidget::focusWidget, this, &MainWindow::handleFocusWidget);
 
 #ifndef QT_NO_DEBUG
 	m_debugConnectors = new DebugConnectors(m_breadboardGraphicsView, m_schematicGraphicsView, m_pcbGraphicsView);
 #endif
-	auto fProbeDebugConnectors = new DebugConnectorsProbe(m_breadboardGraphicsView, m_schematicGraphicsView, m_pcbGraphicsView);
+	new DebugConnectorsProbe(m_breadboardGraphicsView, m_schematicGraphicsView, m_pcbGraphicsView);
 
 	m_projectProperties = QSharedPointer<ProjectProperties>(new ProjectProperties());
 	m_serviceListFetcher = QSharedPointer<ServiceListFetcher>(new ServiceListFetcher());
@@ -553,6 +556,7 @@ MainWindow::~MainWindow()
 		LockManager::releaseLockedFiles(m_fzzFolder, m_fzzFiles);
 		FolderUtils::rmdir(m_fzzFolder);
 	}
+	delete m_undoShortcut;
 }
 
 void MainWindow::initLockedFiles(bool lockFiles) {
@@ -653,6 +657,21 @@ void MainWindow::connectPairs() {
 	connect(m_schematicGraphicsView, SIGNAL(setActiveConnectorItemSignal(ConnectorItem *)), this, SLOT(setActiveConnectorItem(ConnectorItem *)));
 	connect(m_pcbGraphicsView, SIGNAL(setActiveConnectorItemSignal(ConnectorItem *)), this, SLOT(setActiveConnectorItem(ConnectorItem *)));
 
+	connect(m_undoShortcut, &QShortcut::activated, m_breadboardGraphicsView, &SketchWidget::triggerArrowTimer);
+	connect(m_undoShortcut, &QShortcut::activated, m_schematicGraphicsView, &SketchWidget::triggerArrowTimer);
+	connect(m_undoShortcut, &QShortcut::activated, m_pcbGraphicsView, &SketchWidget::triggerArrowTimer);
+
+	connect(m_breadboardGraphicsView, &SketchWidget::undoSignal, m_undoAct, &QAction::trigger);
+	connect(m_schematicGraphicsView, &SketchWidget::undoSignal, m_undoAct, &QAction::trigger);
+	connect(m_pcbGraphicsView, &SketchWidget::undoSignal, m_undoAct, &QAction::trigger);
+
+	connect(m_breadboardGraphicsView, &SketchWidget::disableUndoRedo, this, &MainWindow::disableUndoAction);
+	connect(m_breadboardGraphicsView, &SketchWidget::enableUndoRedo, this, &MainWindow::enableUndoAction);
+	connect(m_schematicGraphicsView, &SketchWidget::disableUndoRedo, this, &MainWindow::disableUndoAction);
+	connect(m_schematicGraphicsView, &SketchWidget::enableUndoRedo, this, &MainWindow::enableUndoAction);
+	connect(m_pcbGraphicsView, &SketchWidget::disableUndoRedo, this, &MainWindow::disableUndoAction);
+	connect(m_pcbGraphicsView, &SketchWidget::enableUndoRedo, this, &MainWindow::enableUndoAction);
+
 	bool succeeded = connect(m_pcbGraphicsView, SIGNAL(routingStatusSignal(SketchWidget *, const RoutingStatus &)),
 	                         this, SLOT(routingStatusSlot(SketchWidget *, const RoutingStatus &))) != nullptr;
 	succeeded =  succeeded && (connect(m_schematicGraphicsView, SIGNAL(routingStatusSignal(SketchWidget *, const RoutingStatus &)),
@@ -682,6 +701,8 @@ void MainWindow::connectPairs() {
 	succeeded =  succeeded && (connect(m_pcbGraphicsView, SIGNAL(changeBoardLayersSignal(int, bool )), this, SLOT(changeBoardLayers(int, bool ))) != nullptr);
 
 	succeeded =  succeeded && (connect(m_pcbGraphicsView, SIGNAL(boardDeletedSignal()), this, SLOT(boardDeletedSlot())) != nullptr);
+
+	succeeded =  succeeded && (connect(m_pcbGraphicsView, SIGNAL(boardReaddedSignal()), this, SLOT(boardReaddedSlot())) != nullptr);
 
 	succeeded =  succeeded && (connect(qApp, SIGNAL(spaceBarIsPressedSignal(bool)), m_breadboardGraphicsView, SLOT(spaceBarIsPressedSlot(bool))) != nullptr);
 	succeeded =  succeeded && (connect(qApp, SIGNAL(spaceBarIsPressedSignal(bool)), m_schematicGraphicsView, SLOT(spaceBarIsPressedSlot(bool))) != nullptr);
@@ -2998,6 +3019,11 @@ void MainWindow::boardDeletedSlot()
 	activeLayerBottom();
 }
 
+void MainWindow::boardReaddedSlot()
+{
+	activeLayerBoth();
+}
+
 void MainWindow::cursorLocationSlot(double xinches, double yinches, double width, double height)
 {
 	if (m_locationLabel != nullptr) {
@@ -3484,31 +3510,12 @@ void MainWindow::putItemByModuleID(const QString & moduleID) {
 	}
 }
 
-void MainWindow::postKeyEvent(const QString & serializedKeys) {
-	QJsonDocument doc = QJsonDocument::fromJson(serializedKeys.toUtf8());
-	QJsonArray events = doc.array();
-
-	for (const QJsonValue &event_val : events) {
-		QJsonObject event_obj = event_val.toObject();
-		QString key = event_obj["key"].toString();
-		QJsonArray modifiers = event_obj["modifiers"].toArray();
-
-		int keyCode = key.at(0).unicode(); // Convert the key string to a Qt key code
-		Qt::KeyboardModifiers modFlags;
-
-		// Check for modifier keys
-		for (const QJsonValue &mod : modifiers) {
-			if (mod.toString() == "shift") {
-				modFlags |= Qt::ShiftModifier;
-			} else if (mod.toString() == "ctrl") {
-				modFlags |= Qt::ControlModifier;
-			} else if (mod.toString() == "alt") {
-				modFlags |= Qt::AltModifier;
-			}
-		}
-
-		QApplication::postEvent(QApplication::focusWidget(), new QKeyEvent(QEvent::KeyPress, keyCode, modFlags, key.at(0)));
-		QApplication::postEvent(QApplication::focusWidget(), new QKeyEvent(QEvent::KeyRelease, keyCode, modFlags, key.at(0)));
+void MainWindow::handleFocusWidget(const QString &objectName, int index)
+{
+	QList<QWidget*> widgets = findChildren<QWidget*>(objectName);
+	if (index >= 0 && index < widgets.size()) {
+		QWidget *targetWidget = widgets[index];
+		targetWidget->setFocus();
 	}
 }
 

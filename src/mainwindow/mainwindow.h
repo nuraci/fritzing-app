@@ -39,6 +39,7 @@ along with Fritzing.  If not, see <http://www.gnu.org/licenses/>.
 #include <QStylePainter>
 #include <QPrinter>
 #include <QNetworkAccessManager>
+#include <QShortcut>
 
 #include "fritzingwindow.h"
 #include "sketchareawidget.h"
@@ -183,9 +184,9 @@ public:
 	// if we consider a part as the smallest ("atomic") entity inside
 	// fritzing, then this functions may help with the bundle tasks
 	// on the complex entities: sketches, bins, modules (?)
-	void saveBundledNonAtomicEntity(QString &filename, const QString &extension, Bundler *bundler, const QList<ModelPart*> &partsToSave, bool askForFilename, const QString & destFolderPath, bool saveModel, bool deleteLeftovers);
+	bool saveBundledNonAtomicEntity(QString &filename, const QString &extension, Bundler *bundler, const QList<ModelPart*> &partsToSave, bool askForFilename, const QString & destFolderPath, bool saveModel, bool deleteLeftovers);
 	bool loadBundledNonAtomicEntity(const QString &filename, Bundler *bundler, bool addToBin, bool dontAsk);
-	void saveAsShareable(const QString & path, bool saveModel);
+	bool saveAsShareable(const QString & path, bool saveModel);
 
 
 	void setCurrentFile(const QString &fileName, bool addToRecent, bool setAsLastOpened);
@@ -265,7 +266,7 @@ public Q_SLOTS:
 	void oldSchematicsSlot(const QString & filename, bool & useOldSchematics);
 	void showWelcomeView();
 	void putItemByModuleID(const QString & moduleID);
-	void postKeyEvent(const QString & serializedKeys);
+	void handleFocusWidget(const QString &objectName, int index);
 	void onServicesFetched(const QStringList& services);
 
 protected Q_SLOTS:
@@ -436,6 +437,7 @@ protected Q_SLOTS:
 	void setSticky();
 	void autorouterSettings();
 	void boardDeletedSlot();
+	void boardReaddedSlot();
 	void cursorLocationSlot(double, double, double=0.0, double=0.0);
 	void locationLabelClicked();
 	void swapSelectedMap(const QString & family, const QString & prop, QMap<QString, QString> & currPropsMap, ItemBase *);
@@ -460,6 +462,8 @@ protected Q_SLOTS:
 	void updateWelcomeViewRecentList(bool doEmit = true);
 	virtual void initZoom();
 	void onShareOnlineFinished();
+	void disableUndoAction();
+	void enableUndoAction();
 
 protected:
 	void initSketchWidget(SketchWidget *);
@@ -487,7 +491,7 @@ protected:
 	virtual void connectPairs();
 	void connectPair(SketchWidget * signaller, SketchWidget * slotter);
 	void closeEvent(QCloseEvent * event);
-	void saveAsAuxAux(const QString & fileName);
+	bool saveAsAuxAux(const QString & fileName);
 	void printAux(QPrinter &printer, bool removeBackground, bool paginate);
 	void exportAux(QString fileName, QImage::Format format, int quality, bool removeBackground);
 	QRectF prepareExport(bool removeBackground);
@@ -658,6 +662,8 @@ protected:
 
 	QUndoGroup *m_undoGroup = nullptr;
 	QUndoView *m_undoView = nullptr;
+
+	QShortcut *m_undoShortcut;
 
 	QPointer<SketchAreaWidget> m_breadboardWidget;
 	QPointer<class BreadboardSketchWidget> m_breadboardGraphicsView;

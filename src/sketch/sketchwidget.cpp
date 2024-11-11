@@ -82,6 +82,7 @@ along with Fritzing.  If not, see <http://www.gnu.org/licenses/>.
 #include "../items/schematicframe.h"
 #include "../utils/graphutils.h"
 #include "../utils/ratsnestcolors.h"
+#include "../utils/fmessagebox.h"
 #include "utils/duplicatetracker.h"
 
 /////////////////////////////////////////////////////////////////////
@@ -204,7 +205,10 @@ SketchWidget::~SketchWidget() {
 
 void SketchWidget::restartPasteCount() {
 	m_pasteCount = 0;
-	m_pasteOffset = QPointF(20.0, -20.0) + QPointF(qAbs(QRandomGenerator::system()->generate() % 3000 / 100.0), -qAbs(QRandomGenerator::system()->generate() % 3000 / 100.0));
+	// Set the initial paste offset with a random component to avoid overlapping pasted items
+	m_pasteOffset = QPointF(20.0, -20.0)
+			+ QPointF(qAbs(QRandomGenerator::global()->generate() % 3000 / 100.0),
+				  -qAbs(QRandomGenerator::global()->generate() % 3000 / 100.0));
 }
 
 WaitPushUndoStack* SketchWidget::undoStack() {
@@ -561,7 +565,10 @@ void SketchWidget::loadFromModelParts(QList<ModelPart *> & modelParts, BaseComma
 
 		m_pasteCount = 0;
 		if (offsetPaste && !pasteInPlace) {
-			m_pasteOffset = QPointF(20.0, -20.0) + QPointF(QRandomGenerator::system()->generate() % 1000 / 100.0, QRandomGenerator::system()->generate() % 1000 / 100.0);
+			// Set the initial paste offset with a random component to avoid overlapping pasted items
+			m_pasteOffset = QPointF(20.0, -20.0)
+					+ QPointF(QRandomGenerator::global()->generate() % 1000 / 100.0,
+						  QRandomGenerator::global()->generate() % 1000 / 100.0);
 		}
 		this->scene()->clearSelection();
 		cleanUpWiresForCommand(false, nullptr);
@@ -2154,10 +2161,10 @@ SelectItemCommand* SketchWidget::stackSelectionState(bool pushIt, QUndoCommand *
 	return selectItemCommand;
 }
 
-bool SketchWidget::moveByArrow(double dx, double dy, QKeyEvent * event) {
+bool SketchWidget::moveByArrow(double dx, double dy, QKeyEvent * event, bool isRepeat) {
 	bool rubberBandLegEnabled = false;
-	DebugDialog::debug(QString("move by arrow %1").arg(!event ? false : event->isAutoRepeat()));
-	if (!event || !event->isAutoRepeat()) {
+	DebugDialog::debug(QString("move by arrow %1").arg((!event || !isRepeat) ? false : true));
+	if (!event || !isRepeat) {
 		m_dragBendpointWire = nullptr;
 		clearHoldingSelectItem();
 		m_savedItems.clear();
@@ -3082,7 +3089,7 @@ QString SketchWidget::makeMoveSVG(double printerScale, double dpi, QPointF & off
 	Q_FOREACH (ItemBase * itemBase, m_savedItems.values()) {
 		Wire * wire = qobject_cast<Wire *>(itemBase);
 		if (wire) {
-			outputSVG.append(makeWireSVG(wire, offset, dpi, printerScale, true));
+			outputSVG.append(wire->makeWireSVG(offset, dpi, printerScale, true));
 		}
 		else {
 			outputSVG.append(TextUtils::makeRectSVG(itemBase->sceneBoundingRect(), offset, dpi, printerScale));
@@ -3151,10 +3158,6 @@ void SketchWidget::moveItemsAux(QPointF scenePos, QPoint globalPos, bool checkAu
 			connectorItem->stretchBy(currentParentPos - buttonDownParentPos);
 		}
 
-		if (m_checkUnder.contains(itemBase)) {
-			findConnectorsUnder(itemBase);
-		}
-
 		/*
 				DebugDialog::debug(QString("scroll 2 lx:%1 ly:%2 cpx:%3 cpy:%4 qx:%5 qy:%6 px:%7 py:%8")
 				.arg(item->getViewGeometry().loc().x()).arg(item->getViewGeometry().loc().y())
@@ -3168,6 +3171,12 @@ void SketchWidget::moveItemsAux(QPointF scenePos, QPoint globalPos, bool checkAu
 
 	Q_FOREACH (Wire * wire, m_savedWires.keys()) {
 		wire->simpleConnectedMoved(m_savedWires.value(wire));
+	}
+
+	Q_FOREACH (ItemBase * itemBase, m_savedItems) {
+		if (m_checkUnder.contains(itemBase)) {
+			findConnectorsUnder(itemBase);
+		}
 	}
 
 	//DebugDialog::debug(QString("done move items %1").arg(QTime::currentTime().msec()) );
@@ -3375,8 +3384,14 @@ bool SketchWidget::checkMoved(bool wait)
 	m_moveDisconnectedFromFemale.clear();
 
 	QList<ConnectorItem *> restoreConnectorItems;
-	Q_FOREACH (ItemBase * item, m_savedItems) {
-		Q_FOREACH (ConnectorItem * fromConnectorItem, item->cachedConnectorItems()) {
+	QSet<ConnectorItem *> connectedItems;
+
+	QList<ItemBase*> saveditemList = m_savedItems.values();
+	std::sort(saveditemList.begin(), saveditemList.end(), [](const ItemBase * a, const ItemBase * b) {
+		return a->zValue() > b->zValue();
+	});
+	for (ItemBase * item: saveditemList) {
+		for (ConnectorItem * fromConnectorItem: item->cachedConnectorItems()) {
 			if (item->itemType() == ModelPart::Wire) {
 				if (fromConnectorItem->connectionsCount() > 0) {
 					continue;
@@ -3387,10 +3402,13 @@ bool SketchWidget::checkMoved(bool wait)
 			if (toConnectorItem) {
 				toConnectorItem->connectorHover(item, false);
 				fromConnectorItem->setOverConnectorItem(nullptr);   // clean up
-				gotConnection = true;
-				extendChangeConnectionCommand(BaseCommand::CrossView, fromConnectorItem, toConnectorItem,
-											  ViewLayer::specFromID(toConnectorItem->attachedToViewLayerID()),
-											  true, parentCommand);
+				if (!connectedItems.contains(toConnectorItem)) {
+					gotConnection = true;
+					extendChangeConnectionCommand(BaseCommand::CrossView, fromConnectorItem, toConnectorItem,
+								      ViewLayer::specFromID(toConnectorItem->attachedToViewLayerID()),
+								      true, parentCommand);
+					connectedItems.insert(toConnectorItem);
+				}
 			}
 			restoreConnectorItems.append(fromConnectorItem);
 			fromConnectorItem->clearConnectorHover();
@@ -3882,7 +3900,7 @@ void SketchWidget::dragWireChanged(Wire* wire, ConnectorItem * fromOnWire, Conne
 	}
 	else {
 		new WireColorChangeCommand(this, wire->id(), m_bendpointWire->colorString(), m_bendpointWire->colorString(), m_bendpointWire->opacity(), m_bendpointWire->opacity(), parentCommand);
-		new WireWidthChangeCommand(this, wire->id(), m_bendpointWire->width(), m_bendpointWire->width(), parentCommand);
+		new WireWidthChangeCommand(this, wire->id(), m_bendpointWire->wireWidth(), m_bendpointWire->wireWidth(), parentCommand);
 		if (m_bendpointWire->banded()) {
 			new SetPropCommand(this, wire->id(), "banded", "Yes", "Yes", true, parentCommand);
 		}
@@ -3956,7 +3974,7 @@ void SketchWidget::dragRatsnestChanged()
 	QList<ConnectorItem *> ends;
 	m_bendpointWire->collectChained(wires, ends);
 	if (ends.count() != 2) {
-		// ratsnest wires should always and only have two ends: we're screwed
+		// ratsnest lines should always and only have two ends: we're screwed
 		return;
 	}
 
@@ -5132,8 +5150,11 @@ void SketchWidget::changeConnectionSlot(long fromID, QString fromConnectorID,
 }
 
 void SketchWidget::keyReleaseEvent(QKeyEvent * event) {
-	//DebugDialog::debug(QString("key release event %1").arg(event->isAutoRepeat()));
-	if (m_movingByArrow) {
+	if (m_movingByArrow &&
+			(event->key() == Qt::Key_Left ||
+			 event->key() == Qt::Key_Right ||
+			 event->key() == Qt::Key_Up ||
+			 event->key() == Qt::Key_Down)) {
 		m_autoScrollTimer.stop();
 		m_arrowTimer.start();
 		//DebugDialog::debug("key release event");
@@ -5146,6 +5167,17 @@ void SketchWidget::keyReleaseEvent(QKeyEvent * event) {
 void SketchWidget::arrowTimerTimeout() {
 	m_movingByArrow = false;
 	checkMoved(false);
+	Q_EMIT enableUndoRedo();
+}
+
+void SketchWidget::triggerArrowTimer() {
+	if (m_arrowTimer.isActive()) {
+		m_arrowTimer.stop();
+		if (m_movingByArrow) {
+			arrowTimerTimeout();
+			Q_EMIT undoSignal();
+		}
+	}
 }
 
 void SketchWidget::keyPressEvent ( QKeyEvent * event ) {
@@ -5168,9 +5200,11 @@ void SketchWidget::keyPressEvent ( QKeyEvent * event ) {
 			break;
 		}
 		if (dx != 0 || dy != 0) {
+			Q_EMIT disableUndoRedo();
+			bool isRepeat = m_arrowTimer.isActive();
 			m_arrowTimer.stop();
 			ConnectorItem::clearEqualPotentialDisplay();
-			moveByArrow(dx, dy, event);
+			moveByArrow(dx, dy, event, isRepeat);
 			m_arrowTimer.start();
 			return;
 		}
@@ -5314,7 +5348,7 @@ void SketchWidget::prepDeleteProps(ItemBase * itemBase, long id, const QString &
 	case ModelPart::Wire:
 	{
 		Wire * wire = qobject_cast<Wire *>(itemBase);
-		new WireWidthChangeCommand(this, id, wire->width(), wire->width(), parentCommand);
+		new WireWidthChangeCommand(this, id, wire->wireWidth(), wire->wireWidth(), parentCommand);
 		new WireColorChangeCommand(this, id, wire->colorString(), wire->colorString(), wire->opacity(), wire->opacity(), parentCommand);
 	}
 	return;
@@ -5690,7 +5724,7 @@ void SketchWidget::wireSplitSlot(Wire* wire, QPointF newPos, QPointF oldPos, con
 	new AddItemCommand(this, crossView, ModuleIDNames::WireModuleIDName, wire->viewLayerPlacement(), vg, newID, true, -1, parentCommand);
 	new CheckStickyCommand(this, crossView, newID, false, CheckStickyCommand::RemoveOnly, parentCommand);
 	new WireColorChangeCommand(this, newID, wire->colorString(), wire->colorString(), wire->opacity(), wire->opacity(), parentCommand);
-	new WireWidthChangeCommand(this, newID, wire->width(), wire->width(), parentCommand);
+	new WireWidthChangeCommand(this, newID, wire->wireWidth(), wire->wireWidth(), parentCommand);
 	if (wire->banded()) {
 		new SetPropCommand(this, newID, "banded", "Yes", "Yes", true, parentCommand);
 	}
@@ -6675,6 +6709,8 @@ void SketchWidget::changeWireWidthMils(const QString newWidthStr)
 
 	double trueWidth = GraphicsUtils::SVGDPI * newWidth / 1000.0;
 
+	setLastTraceWidth(trueWidth);
+
 	QList <Wire *> wires;
 	Q_FOREACH (QGraphicsItem * item, scene()->selectedItems()) {
 		Wire * wire = dynamic_cast<Wire *>(item);
@@ -6708,7 +6744,7 @@ void SketchWidget::changeWireWidthMils(const QString newWidthStr)
 			new WireWidthChangeCommand(
 			    this,
 			    subWire->id(),
-			    subWire->width(),
+			    subWire->wireWidth(),
 			    trueWidth,
 			    parentCommand);
 		}
@@ -7597,7 +7633,7 @@ QString SketchWidget::renderToSVG(RenderThing & renderThing, QList<QGraphicsItem
 			//		);
 			//}
 
-			QString wireSvg = makeWireSVG(wire, offset, renderThing.dpi, renderThing.printerScale, renderThing.blackOnly);
+			QString wireSvg = wire->makeWireSVG(offset, renderThing.dpi, renderThing.printerScale, renderThing.blackOnly);
 			wireSvg = QString("<g partID='%1'>%2</g>").arg(wire->id()).arg(wireSvg);
 			outputSVG.append(wireSvg);
 			renderThing.empty = false;
@@ -7622,39 +7658,6 @@ void SketchWidget::extraRenderSvgStep(ItemBase * itemBase, QPointF offset, doubl
 	Q_UNUSED(printerScale);
 	Q_UNUSED(outputSvg);
 }
-
-QString SketchWidget::makeWireSVG(Wire * wire, QPointF offset, double dpi, double printerScale, bool blackOnly)
-{
-	QString shadow;
-	bool dashed = false;
-	if (wire->hasShadow()) {
-		shadow = makeWireSVGAux(wire, wire->shadowWidth(), wire->shadowHexString(), offset, dpi, printerScale, blackOnly, false);
-
-		if (wire->banded()) {
-			dashed = true;
-			shadow += makeWireSVGAux(wire, wire->width(), "white", offset, dpi, printerScale, blackOnly, false);
-		}
-	}
-
-
-
-	return shadow + makeWireSVGAux(wire, wire->width(), wire->hexString(), offset, dpi, printerScale, blackOnly, dashed);
-}
-
-QString SketchWidget::makeWireSVGAux(Wire * wire, double width, const QString & color, QPointF offset, double dpi, double printerScale, bool blackOnly, bool dashed)
-{
-	if (wire->isCurved()) {
-		QPolygonF poly = wire->sceneCurve(offset);
-		return TextUtils::makeCubicBezierSVG(poly, width, color, dpi, printerScale, blackOnly, dashed, Wire::TheDash);
-	}
-	else {
-		QLineF line = wire->getPaintLine();
-		QPointF p1 = wire->scenePos() + line.p1() - offset;
-		QPointF p2 = wire->scenePos() + line.p2() - offset;
-		return TextUtils::makeLineSVG(p1, p2, width, color, dpi, printerScale, blackOnly, dashed, Wire::TheDash);
-	}
-}
-
 
 void SketchWidget::drawBackground( QPainter * painter, const QRectF & rect )
 {
@@ -7732,34 +7735,34 @@ void SketchWidget::drawBackground( QPainter * painter, const QRectF & rect )
 }
 
 void SketchWidget::drawForeground ( QPainter * painter, const QRectF & rect ) {
-    if(!m_simMessage.isEmpty()) {
-        //Set the font size based on the zoom
-        QFont font = painter->font();
-        qreal baseFontSize = 18; // Base font size at zoom level 1
-        font.setPointSizeF(baseFontSize);
-        painter->setFont(font);
+	if(!m_simMessage.isEmpty()) {
+		//Set the font size based on the zoom
+		QFont font = painter->font();
+		qreal baseFontSize = 18; // Base font size at zoom level 1
+		font.setPointSizeF(baseFontSize);
+		painter->setFont(font);
 
-        int margin = 0; // Margin from the top and right edges
-        QFontMetrics metrics = painter->fontMetrics();
-        int textWidth = metrics.horizontalAdvance(m_simMessage);
+		int margin = 0; // Margin from the top and right edges
+		QFontMetrics metrics = painter->fontMetrics();
+		int textWidth = metrics.horizontalAdvance(m_simMessage);
 
-        // 2. Get the View's Top-Right Corner in View Coordinates
-        QPointF viewTopRight = this->viewport()->rect().topRight();
-        QPointF viewTexPos = viewTopRight - QPointF(textWidth, -1*metrics.ascent()); // Adjust for the width of the text item
+		// 2. Get the View's Top-Right Corner in View Coordinates
+		QPointF viewTopRight = this->viewport()->rect().topRight();
+		QPointF viewTexPos = viewTopRight - QPointF(textWidth, -1*metrics.ascent()); // Adjust for the width of the text item
 
-        //save current transformations, remove them temporaly, draw the text in the view and restore the transformations
-        painter->save();
-        painter->resetTransform();
-        painter->drawText(viewTexPos.x(), viewTexPos.y(), m_simMessage);
-        painter->restore();
-    }
+		//save current transformations, remove them temporaly, draw the text in the view and restore the transformations
+		painter->save();
+		painter->resetTransform();
+		painter->drawText(viewTexPos.x(), viewTexPos.y(), m_simMessage);
+		painter->restore();
+	}
 }
 
 void SketchWidget::setSimulatorMessage(QString message) {
-    m_simMessage = message;
-    if (isVisible()) {
-        update();
-    }
+	m_simMessage = message;
+	if (isVisible()) {
+		update();
+	}
 }
 
 /*
@@ -8153,7 +8156,7 @@ void SketchWidget::selectAllWiresFrom(ViewGeometry::WireFlag flag, QList<QGraphi
 		wireName = QObject::tr("Trace wires");
 	}
 	else if (flag == ViewGeometry::RatsnestFlag) {
-		wireName = QObject::tr("Ratsnest wires");
+		wireName = QObject::tr("Ratsnest lines");
 	}
 	auto * parentCommand = new QUndoCommand(QObject::tr("Select all %1").arg(wireName));
 
@@ -9028,6 +9031,15 @@ void SketchWidget::removeRatsnestSlot(QList<ConnectorEdge *> & cutSet, QUndoComm
 		}
 	}
 
+	if (!detachItems.isEmpty()) {
+		FMessageBox::information(
+					this,
+					tr("Part Movement Notice"),
+					tr("To delete this connection, some parts need to be moved from their current positions.\n"
+					   "The parts will be moved automatically. To see changes clearly use undo then redo.\n")
+					);
+	}
+
 	Q_FOREACH (ConnectorItem * detacheeConnector, detachItems.keys()) {
 		ItemBase * detachee = detacheeConnector->attachedTo();
 		ConnectorItem * detachFromConnector = detachItems.value(detacheeConnector);
@@ -9148,11 +9160,14 @@ void SketchWidget::setItemDropOffsetForCommand(long id, QPointF offset)
 
 Wire * SketchWidget::createTempWireForDragging(Wire * fromWire, ModelPart * wireModel, ConnectorItem * connectorItem, ViewGeometry & viewGeometry, ViewLayer::ViewLayerPlacement spec)
 {
-	Q_UNUSED(fromWire);
 	if (spec == ViewLayer::UnknownPlacement) {
 		spec = wireViewLayerPlacement(connectorItem);
 	}
-	return qobject_cast<Wire *>(addItemAuxTemp(wireModel, spec, viewGeometry, ItemBase::getNextID(), true, m_viewID, true));
+	Wire * wire = qobject_cast<Wire *>(addItemAuxTemp(wireModel, spec, viewGeometry, ItemBase::getNextID(), true, m_viewID, true));
+	if (fromWire) {
+		wire->setWireWidth(fromWire->wireWidth(), this, fromWire->wireWidth() + 4.0);
+	}
+	return wire;
 }
 
 void SketchWidget::prereleaseTempWireForDragging(Wire*)
@@ -9405,7 +9420,7 @@ VirtualWire * SketchWidget::makeOneRatsnestWire(ConnectorItem * source, Connecto
 	}
 
 	wire->setColor(color, ratsnestOpacity());
-	wire->setWireWidth(ratsnestWidth(), this, VirtualWire::ShapeWidthExtra + ratsnestWidth());
+	wire->setWireWidth(ratsnestWidth(), this, VirtualWire::ShapeWidthExtra * ratsnestWidth());
 
 	return wire;
 }
@@ -9441,6 +9456,10 @@ const QString & SketchWidget::traceColor(ViewLayer::ViewLayerPlacement) {
 
 double SketchWidget::getTraceWidth() {
 	return 1;
+}
+
+void SketchWidget::setLastTraceWidth(double lastTraceWidth) {
+	Q_UNUSED(lastTraceWidth);
 }
 
 void SketchWidget::setAnyInRotation()

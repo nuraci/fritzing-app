@@ -90,6 +90,8 @@ PCBSketchWidget::PCBSketchWidget(ViewLayer::ViewID viewID, QWidget *parent)
 
 	new FProbeR1PosPCB(this);
 	new FProbeRPartLabel(this);
+
+	m_lastTraceWireWidth = Wire::STANDARD_TRACE_WIDTH;
 }
 
 void PCBSketchWidget::setWireVisible(Wire * wire)
@@ -1362,8 +1364,22 @@ void PCBSketchWidget::deleteItem(ItemBase * itemBase, bool deleteModelPart, bool
 	}
 }
 
+ItemBase * PCBSketchWidget::addItem(ModelPart * modelPart, ViewLayer::ViewLayerPlacement viewLayerPlacement, BaseCommand::CrossViewType crossViewType, const ViewGeometry & viewGeometry, long id, long modelIndex, AddDeleteItemCommand * originatingCommand) {
+	ItemBase * itemBase = SketchWidget::addItem(modelPart, viewLayerPlacement, crossViewType, viewGeometry, id, modelIndex, originatingCommand);
+	if (Board::isBoard(itemBase)) {
+		if (findBoard().count() == 1) {
+			Q_EMIT boardReaddedSignal();
+		}
+	}
+	return itemBase;
+}
+
 double PCBSketchWidget::getTraceWidth() {
-	return Wire::STANDARD_TRACE_WIDTH;
+	return m_lastTraceWireWidth;
+}
+
+void PCBSketchWidget::setLastTraceWidth(double lastTraceWidth) {
+	m_lastTraceWireWidth = lastTraceWidth;
 }
 
 double PCBSketchWidget::getAutorouterTraceWidth() {
@@ -1820,8 +1836,9 @@ double PCBSketchWidget::getWireStrokeWidth(Wire * wire, double wireWidth)
 	double w, h;
 	wire->originalConnectorDimensions(w, h);
 	if (wireWidth < Wire::THIN_TRACE_WIDTH) {
-		wire->setConnectorDimensions(qMin(w, wireWidth + 1), qMin(w, wireWidth + 1));
-	}
+		wire->setConnectorDimensions(qMin(w, wireWidth + 0.1), qMin(w, wireWidth + 0.1));
+		return 3 * wireWidth;
+	} else
 	if (wireWidth < Wire::STANDARD_TRACE_WIDTH) {
 		wire->setConnectorDimensions(qMin(w, wireWidth + 1.5), qMin(w, wireWidth + 1.5));
 	}
@@ -1851,7 +1868,7 @@ Wire * PCBSketchWidget::createTempWireForDragging(Wire * fromWire, ModelPart * w
 	}
 	else {
 		wire->setColorString(fromWire->colorString(), fromWire->opacity(), false);
-		wire->setWireWidth(fromWire->width(), this, fromWire->hoverStrokeWidth());
+		wire->setWireWidth(fromWire->wireWidth(), this, getWireStrokeWidth(wire, fromWire->wireWidth()));
 	}
 
 	return wire;

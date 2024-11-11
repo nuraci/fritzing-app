@@ -83,7 +83,7 @@ public:
 
 	void pushCommand(QUndoCommand *, QObject * signalTarget);
 	class WaitPushUndoStack * undoStack();
-	ItemBase * addItem(ModelPart *, ViewLayer::ViewLayerPlacement, BaseCommand::CrossViewType, const ViewGeometry &, long id, long modelIndex, AddDeleteItemCommand * originatingCommand);
+	virtual ItemBase * addItem(ModelPart *, ViewLayer::ViewLayerPlacement, BaseCommand::CrossViewType, const ViewGeometry &, long id, long modelIndex, AddDeleteItemCommand * originatingCommand);
 	ItemBase * addItemForCommand(const QString & moduleID, ViewLayer::ViewLayerPlacement, BaseCommand::CrossViewType, const ViewGeometry &, long id, long modelIndex, AddDeleteItemCommand * originatingCommand);
 	void deleteItemForCommand(long id, bool deleteModelPart, bool doEmit, bool later);
 	virtual void deleteItem(ItemBase *, bool deleteModelPart, bool doEmit, bool later);
@@ -253,7 +253,7 @@ public:
 	double retrieveZoom();
 	void initGrid();
 	virtual double defaultGridSizeInches();
-    void setSimulatorMessage(QString);
+	void setSimulatorMessage(QString);
 	void clearPasteOffset();
 	virtual ViewLayer::ViewLayerPlacement defaultViewLayerPlacement(ModelPart *);
 	void collectAllNets(
@@ -450,7 +450,7 @@ protected:
 	                                   QString moduleID, ViewLayer::ViewLayerPlacement, ViewGeometry & viewGeometry, qint64 id,
 	                                   bool updateInfoView, long modelIndex, bool addSubparts, QUndoCommand *parent);
 	int selectAllItems(QSet<ItemBase *> & itemBases, const QString & msg);
-	bool moveByArrow(double dx, double dy, QKeyEvent * );
+	bool moveByArrow(double dx, double dy, QKeyEvent * , bool isRepeat = false);
 	double gridSizeInches();
 	virtual bool canAlignToTopLeft(ItemBase *);
 	virtual bool canAlignToCenter(ItemBase *);
@@ -460,8 +460,6 @@ protected:
 	void copyDrop();
 	void dropItemEvent(QDropEvent *event);
 	virtual QString checkDroppedModuleID(const QString & moduleID);
-	QString makeWireSVG(Wire * wire, QPointF offset, double dpi, double printerscale, bool blackOnly);
-	QString makeWireSVGAux(Wire * wire, double width, const QString & color, QPointF offset, double dpi, double printerScale, bool blackOnly, bool dashed);
 
 	QString makeMoveSVG(double printerScale, double dpi, QPointF & offset);
 	void prepDeleteProps(ItemBase * itemBase, long id, const QString & newModuleID, QMap<QString, QString> & propsMap, QUndoCommand * parentCommand);
@@ -497,6 +495,7 @@ protected:
 	bool checkUpdateRatsnest(QList<ConnectorItem *> & connectorItems);
 	void makeRatsnestViewGeometry(ViewGeometry & viewGeometry, ConnectorItem * source, ConnectorItem * dest);
 	virtual double getTraceWidth();
+	virtual void setLastTraceWidth(double lastTraceWidth);
 	virtual const QString & traceColor(ViewLayer::ViewLayerPlacement);
 	void createTrace(Wire * fromWire, const QString & commandString, ViewGeometry::WireFlag, bool useLastWireColor);
 	bool createOneTrace(Wire * wire, ViewGeometry::WireFlag flag, bool allowAny, QList<Wire *> & done, bool useLastWireColor, QUndoCommand * parentCommand);
@@ -574,6 +573,9 @@ Q_SIGNALS:
 	void getDroppedItemViewLayerPlacementSignal(ModelPart * modelPart, ViewLayer::ViewLayerPlacement &);
 	void packItemsSignal(int columns, const QList<long> & ids, QUndoCommand *parent, bool doEmit);
 	void routingCheckSignal();
+	void disableUndoRedo();
+	void enableUndoRedo();
+	void undoSignal();
 
 protected Q_SLOTS:
 	void itemAddedSlot(ModelPart *, ItemBase *, ViewLayer::ViewLayerPlacement, const ViewGeometry &, long id, SketchWidget * dropOrigin);
@@ -639,6 +641,7 @@ public Q_SLOTS:
 	void addSubpartForCommand(long id, long subpartid, bool doEmit);
 	void removeSubpartForCommand(long id, long subpartID, bool doEmit);
 	void packItemsForCommand(int columns, const QList<long> & ids, QUndoCommand *parent, bool doEmit);
+	void triggerArrowTimer();
 
 protected:
 	enum StatusConnectStatus {

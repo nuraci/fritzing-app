@@ -1989,6 +1989,11 @@ ConnectorItem * ConnectorItem::findConnectorUnder(bool useTerminalPoint, bool al
 		if (!this->connectionIsAllowed(connectorItemUnder)) {
 			continue;
 		}
+		if (
+			this->attachedToItemType() != ModelPart::Wire && // still allow wires to connect to bendpoints / big dots
+			connectorItemUnder->attachedToItemType() == ModelPart::Wire && connectorItemUnder->connectedToItems().size() > 0) {
+			continue;
+		}
 		if (!allowAlready) {
 			if (connectorItemUnder->connectedToItems().contains(this)) {
 				continue;  // already connected
@@ -2005,7 +2010,20 @@ ConnectorItem * ConnectorItem::findConnectorUnder(bool useTerminalPoint, bool al
 		candidate = candidates[0];
 	}
 	else if (candidates.count() > 0) {
-		std::sort(candidates.begin(), candidates.end(), wireLessThan);
+		if (this->attachedToItemType() == ModelPart::Wire) {
+			std::sort(candidates.begin(), candidates.end(), [this](ConnectorItem *a, ConnectorItem *b) {
+				auto squaredDistanceTo = [this](ConnectorItem* other) {
+					return std::pow(this->sceneBoundingRect().center().x() - other->sceneBoundingRect().center().x(), 2) +
+						std::pow(this->sceneBoundingRect().center().y() - other->sceneBoundingRect().center().y(), 2);
+				};
+				if (a->zValue() == b->zValue()) {
+					return squaredDistanceTo(a) < squaredDistanceTo(b);
+				}
+				return a->zValue() > b->zValue();
+			});
+		} else {
+			std::sort(candidates.begin(), candidates.end(), wireLessThan);
+		}
 		candidate = candidates[0];
 	}
 
